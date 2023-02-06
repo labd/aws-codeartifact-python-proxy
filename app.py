@@ -1,4 +1,3 @@
-import logging
 import json
 import os
 
@@ -6,10 +5,6 @@ import boto3
 import requests as r
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, request
-
-# Logging
-logging.basicConfig()
-logger = logging.Logger(__name__)
 
 
 def current_account() -> str:
@@ -58,8 +53,8 @@ def update_auth_token():
         domainOwner=codeartifact_account_id,
         durationSeconds=43200,
     )["authorizationToken"]
-    logger.info("Got new token")
-    logger.debug("New token: " + AUTH_TOKEN)
+    app.logger.info("Got new token")
+    app.logger.debug("New token: " + AUTH_TOKEN)
 
 
 def generate_url(path: str) -> str:
@@ -71,7 +66,7 @@ def generate_url(path: str) -> str:
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>", methods=["GET", "POST"])
 def proxy(path):
-    logger.info(f"{request.method} {request.path}")
+    app.logger.info(f"{request.method} {request.path}")
 
     if request.method == "GET":
         response = r.get(f"{generate_url(path)}")
@@ -79,6 +74,11 @@ def proxy(path):
     elif request.method == "POST":
         response = r.post(f"{generate_url(path)}", json=request.get_json())
         return response.content
+
+@app.before_request
+def log_request_info():
+    app.logger.debug('Headers: %s', request.headers)
+    app.logger.debug('Body: %s', request.get_data())
 
 
 if __name__ == "__main__":
