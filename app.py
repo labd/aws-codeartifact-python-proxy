@@ -1,31 +1,48 @@
 import logging
+import json
 import os
 
-from flask import Flask, request
-from flask_basicauth import BasicAuth
-from apscheduler.schedulers.background import BackgroundScheduler
-import requests as r
 import boto3
-
-
-# Pull config
-codeartifact_region = os.environ["CODEARTIFACT_REGION"]
-codeartifact_account_id = os.environ["CODEARTIFACT_ACCOUNT_ID"]
-codeartifact_domain = os.environ["CODEARTIFACT_DOMAIN"]
-codeartifact_repository = os.environ["CODEARTIFACT_REPOSITORY"]
-auth_incoming = os.getenv("PROXY_AUTH")
+import requests as r
+from apscheduler.schedulers.background import BackgroundScheduler
+from flask import Flask, request
 
 # Logging
 logging.basicConfig()
 logger = logging.Logger(__name__)
 
+
+def current_account() -> str:
+    CONFIG = json.loads(os.environ.get("AWS_CONFIG", "{}"))
+    config = Config(connect_timeout=5, retries={"max_attempts": 0})
+
+    sts = boto3.client("sts", config=config, **CONFIG)
+    return sts.get_caller_identity()["Account"]
+
+
+def current_region() -> str:
+    session = boto3.session.Session()
+    return session.region_name
+
+
+# Pull config
+codeartifact_region = os.getenv("CODEARTIFACT_REGION") or current_region()
+codeartifact_account_id = os.environ.get("CODEARTIFACT_ACCOUNT_ID") or current_account()
+
+assert all((codeartifact_account_id, codeartifact_region))
+
+codeartifact_domain = os.environ["CODEARTIFACT_DOMAIN"]
+codeartifact_repository = os.environ["CODEARTIFACT_REPOSITORY"]
+
 # Make flask
 app = Flask(__name__)
-if auth_incoming:
+if auth_incoming := os.getenv("PROXY_AUTH"):
+    from flask_basicauth import BasicAuth
+
     username, password = auth_incoming.split(":")
-    app.config['BASIC_AUTH_USERNAME'] = username
-    app.config['BASIC_AUTH_PASSWORD'] = password
-    app.config['BASIC_AUTH_FORCE'] = True
+    app.config["BASIC_AUTH_USERNAME"] = username
+    app.config["BASIC_AUTH_PASSWORD"] = password
+    app.config["BASIC_AUTH_FORCE"] = True
     basic_auth = BasicAuth(app)
 
 
@@ -71,4 +88,4 @@ if __name__ == "__main__":
     job = scheduler.add_job(update_auth_token, "interval", seconds=21600)
     scheduler.start()
 
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host="0.0.0.0", port=5000)
